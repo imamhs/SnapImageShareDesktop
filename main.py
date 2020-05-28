@@ -2,6 +2,7 @@ import os
 import sys
 import math
 import re
+import subprocess
 
 import json
 import requests
@@ -9,8 +10,6 @@ import requests.exceptions
 import urllib.request
 import threading
 import io
-import random
-import time
 
 import wx
 import wx.lib.agw.hyperlink as hl
@@ -280,7 +279,7 @@ class FileSelectionPage():
             self.file_selection_selected_files.SetItem(list_row, 2, files_selection.files[i][2])
 
         self.file_selection_panel_vbox.Add(self.file_selection_selected_files, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=100)
-        self.file_selection_panel_vbox.AddSpacer(5)
+        self.file_selection_panel_vbox.AddSpacer(10)
         self.file_selection_selected_statistics = wx.StaticText(self.file_selection_panel, style=wx.ALIGN_LEFT)
         self.file_selection_selected_statistics.SetFont(wx.Font(12, wx.FONTFAMILY_DECORATIVE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.file_selection_selected_statistics.SetForegroundColour((50, 50, 50))
@@ -479,6 +478,8 @@ class UploadPage():
 
         copy_link_buffer = ""
 
+        links_count = 0
+
         count = self.upload_files_report.GetItemCount()
 
         if count == 1:
@@ -486,17 +487,19 @@ class UploadPage():
             if file_c.GetText() != "":
                 file_n = self.upload_files_report.GetItem(0, col=0)
                 copy_link_buffer += file_n.GetText() + " : " + share_server_link + file_c.GetText()
+                links_count += 1
         else:
             for row in range(count):
                 file_c = self.upload_files_report.GetItem(row, col=2)
                 if file_c.GetText() != "":
                     file_n = self.upload_files_report.GetItem(row, col=0)
                     copy_link_buffer += file_n.GetText() + " : " + share_server_link + file_c.GetText() + "\n"
+                    links_count += 1
 
         if wx.TheClipboard.Open():
             wx.TheClipboard.SetData(wx.TextDataObject(copy_link_buffer))
             wx.TheClipboard.Close()
-            wx.MessageBox("Copied share links to the clipboard", 'Information', wx.OK | wx.ICON_INFORMATION)
+            wx.MessageBox("Copied " + str(links_count) + " share links to the clipboard", 'Information', wx.OK | wx.ICON_INFORMATION)
         else:
             wx.MessageBox("Can not access the system clipboard", 'Error', wx.OK | wx.ICON_ERROR)
 
@@ -655,18 +658,21 @@ class DownloadPage():
         self.download_panel_vbox.AddSpacer(30)
         self.download_available_files = wx.ListCtrl(self.download_panel, style=wx.LC_REPORT, size=(-1, 140))
         self.download_available_files.InsertColumn(0, 'File title', width=200)
-        self.download_available_files.InsertColumn(1, 'Downloads remaining', wx.LIST_FORMAT_LEFT, 200)
-        self.download_available_files.InsertColumn(2, 'Time to expiry', wx.LIST_FORMAT_LEFT, 150)
-        self.download_available_files.InsertColumn(3, 'Share code', wx.LIST_FORMAT_LEFT, 200)
+        self.download_available_files.InsertColumn(1, 'Downloaded', width=100)
+        self.download_available_files.InsertColumn(2, 'Downloads remaining', wx.LIST_FORMAT_LEFT, 150)
+        self.download_available_files.InsertColumn(3, 'Time to expiry', wx.LIST_FORMAT_LEFT, 150)
+        self.download_available_files.InsertColumn(4, 'Share code', wx.LIST_FORMAT_LEFT, 200)
         self.download_available_files.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.download_panel_vbox.Add(self.download_available_files, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=100)
         self.download_panel_vbox.AddSpacer(10)
-        self.download_statistics = wx.StaticText(self.download_panel, style=wx.ALIGN_LEFT)
-        self.download_statistics.SetFont(wx.Font(12, wx.FONTFAMILY_DECORATIVE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.download_statistics.SetForegroundColour((50, 50, 50))
-        self.download_statistics.SetLabel("No file downloaded yet")
-        self.download_panel_vbox.Add(self.download_statistics, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=100)
-        self.download_panel_vbox.AddSpacer(60)
+        # self.download_statistics = wx.StaticText(self.download_panel, style=wx.ALIGN_LEFT)
+        # self.download_statistics.SetFont(wx.Font(12, wx.FONTFAMILY_DECORATIVE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        # self.download_statistics.SetForegroundColour((50, 50, 50))
+        # self.download_statistics.SetLabel("No file downloaded yet")
+        # self.download_panel_vbox.Add(self.download_statistics, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=100)
+        self.download_progress_bar = wx.Gauge(self.download_panel, range=100)
+        self.download_panel_vbox.Add(self.download_progress_bar, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=100)
+        self.download_panel_vbox.AddSpacer(40)
         self.download_empty_selection = wx.Button(self.download_panel, label='Empty downloads selection')
         self.download_empty_selection.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.download_panel_vbox.Add(self.download_empty_selection, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=120)
@@ -712,7 +718,13 @@ class DownloadPage():
             self.download_the_selection.Enable()
             self.download_paste_links.Enable()
             self.download_save_location_select.Enable()
-
+            wx.MessageBox("Number of files downloaded: " + str(download_selection.downloads_count), 'Downloading completed', wx.OK | wx.ICON_INFORMATION)
+            if sys.platform == 'darwin':
+                subprocess.check_call(['open', download_selection.download_directory])
+            elif sys.platform == 'linux':
+                subprocess.check_call(['xdg-open', download_selection.download_directory])
+            elif sys.platform == 'win32':
+                subprocess.check_call(['explorer', download_selection.download_directory])
 
     def on_download_info_timer(self, event):
 
@@ -743,13 +755,14 @@ class DownloadPage():
                     filename = re.findall(r'"(.*?)"', r.headers.get('content-disposition'))
                     file_size = float(r.headers.get('content-length'))
                     downloaded = 0.0
-                    print(download_selection.download_directory + filename[0])
                     with open(download_selection.download_directory + filename[0], 'wb') as fd:
                         for chunk in r.iter_content(chunk_size=4096):
                             fd.write(chunk)
                             downloaded += float(len(chunk))
                             percent = int((downloaded / file_size) * 100)
-                            #self.download_statistics.SetLabel("Hello")
+                            self.download_progress_bar.SetValue(percent)
+                    self.download_available_files.SetItem(_file_index, 1, "Yes")
+                    download_selection.downloads_count += 1
             else:
                 server_error.occured = True
                 server_error.last_message = "Can not reach to Snap Image Share server"
@@ -780,6 +793,7 @@ class DownloadPage():
 
         download_selection.files.clear()
         download_selection.files_count = 0
+        download_selection.downloads_count = 0
 
         self.download_available_files.DeleteAllItems()
 
@@ -804,9 +818,10 @@ class DownloadPage():
 
     def link_information(self):
 
-        global download_selection, server_error, max_int
+        global download_selection, server_error
 
         files_found = 0
+        list_row = download_selection.files_count
 
         for i in range(len(self.links)):
             share_code = ""
@@ -824,11 +839,11 @@ class DownloadPage():
                     if (r.status_code == requests.codes.ok):
                         server_reply = json.loads(r.text)
                         if (server_reply['response_code'] == '1'):
-                            download_selection.files[i] = [share_code, str(server_reply['response']), 0, 0, False]
+                            download_selection.files[download_selection.files_count] = [share_code, str(server_reply['response']), 0, 0, False]
                             download_selection.files_count += 1
                             files_found += 1
                         else:
-                            download_selection.files[i] = [share_code, str(server_reply['title']), int(server_reply['downloads']), round(float(server_reply['time_remaining']) / 60, 2) * (60 * 1000), True]
+                            download_selection.files[download_selection.files_count] = [share_code, str(server_reply['title']), int(server_reply['downloads']), round(float(server_reply['time_remaining']) / 60, 2) * (60 * 1000), True]
                             download_selection.files_count += 1
                             files_found += 1
                     else:
@@ -842,12 +857,12 @@ class DownloadPage():
 
 
         for i in range(files_found):
-            list_row = self.download_available_files.InsertItem(max_int, download_selection.files[i][1])
-            self.download_available_files.SetItem(list_row, 1, str(download_selection.files[i][2]))
+            self.download_available_files.InsertItem(list_row, download_selection.files[i][1])
+            self.download_available_files.SetItem(list_row, 2, str(download_selection.files[i][2]))
             et_m = int(download_selection.files[i][3] / 60000)
             et_s = math.ceil(((download_selection.files[i][3] / 60000) % 1) * 60)
-            self.download_available_files.SetItem(list_row, 2, str(int(et_m)) + ":" + str(int(et_s)))
-            self.download_available_files.SetItem(list_row, 3, download_selection.files[i][0])
+            self.download_available_files.SetItem(list_row, 3, str(int(et_m)) + ":" + str(int(et_s)))
+            self.download_available_files.SetItem(list_row, 4, download_selection.files[i][0])
 
         return True
 
@@ -1029,6 +1044,7 @@ class DownloadSelection():
 
         self.files = dict()
         self.files_count = 0
+        self.downloads_count = 0
 
         if platform == "posix":
             self.download_directory = os.path.expanduser('~') + "/"
@@ -1041,7 +1057,6 @@ class ServerError():
         self.last_message = ""
 
 if __name__ == '__main__':
-    max_int = sys.maxsize
     platform = os.name
     share_server_link = 'https://snapshare.salhosengineering.com/image.php?file='
     share_goals = ShareGoals()
