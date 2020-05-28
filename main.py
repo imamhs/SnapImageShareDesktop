@@ -1,16 +1,20 @@
 import os
+import sys
 import math
 import re
 
 import json
 import requests
 import requests.exceptions
+import urllib.request
 import threading
 import io
 import random
 import time
 
 import wx
+import wx.lib.agw.hyperlink as hl
+
 
 class SnapImageShare():
     def __init__(self):
@@ -276,9 +280,7 @@ class FileSelectionPage():
             self.file_selection_selected_files.SetItem(list_row, 2, files_selection.files[i][2])
 
         self.file_selection_panel_vbox.Add(self.file_selection_selected_files, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=100)
-        #self.file_selection_selected_files.Bind(wx.EVT_LIST_INSERT_ITEM, self.on_insert_file)
-        #self.file_selection_selected_files.Bind(wx.EVT_LIST_DELETE_ITEM, self.on_remove_file)
-        self.file_selection_panel_vbox.AddSpacer(20)
+        self.file_selection_panel_vbox.AddSpacer(5)
         self.file_selection_selected_statistics = wx.StaticText(self.file_selection_panel, style=wx.ALIGN_LEFT)
         self.file_selection_selected_statistics.SetFont(wx.Font(12, wx.FONTFAMILY_DECORATIVE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.file_selection_selected_statistics.SetForegroundColour((50, 50, 50))
@@ -422,8 +424,8 @@ class UploadPage():
         self.upload_panel_vbox.Add(self.upload_share_new, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=120)
         self.upload_share_new.Bind(wx.EVT_BUTTON, self.on_share_new_click)
 
-        self.required_threads_count = files_selection.files_count
-        self.current_thread = 0
+        self.file_uploads_required = files_selection.files_count
+        self.file_upload_number = 0
         self.file_upload_thread = None
 
         self.upload_timer = wx.Timer(self.upload_panel)
@@ -434,12 +436,12 @@ class UploadPage():
 
         global server_error
 
-        if self.current_thread == 0:
+        if self.file_upload_number == 0:
 
-            self.file_upload_thread = threading.Thread(target=self.upload_file, name='file_upload_thread' + str(self.current_thread + 1), args=(self.current_thread,))
+            self.file_upload_thread = threading.Thread(target=self.upload_file, name='file_upload_thread' + str(self.file_upload_number + 1), args=(self.file_upload_number,))
             self.file_upload_thread.daemon = True
             self.file_upload_thread.start()
-            self.current_thread += 1
+            self.file_upload_number += 1
             self.upload_stop.Enable()
         else:
             if self.file_upload_thread.isAlive() == False:
@@ -447,14 +449,14 @@ class UploadPage():
                 if server_error.occured == True:
                     wx.MessageBox(server_error.last_message, 'Error', wx.OK | wx.ICON_ERROR)
 
-                if self.current_thread < self.required_threads_count:
-                    self.file_upload_thread = threading.Thread(target=self.upload_file, name='file_upload_thread' + str(self.current_thread + 1), args=(self.current_thread,))
+                if self.file_upload_number < self.file_uploads_required:
+                    self.file_upload_thread = threading.Thread(target=self.upload_file, name='file_upload_thread' + str(self.file_upload_number + 1), args=(self.file_upload_number,))
                     self.file_upload_thread.daemon = True
                     self.file_upload_thread.start()
-                    self.current_thread += 1
+                    self.file_upload_number += 1
                 else:
                     self.upload_timer.Stop()
-                    self.current_thread = 0
+                    self.file_upload_number = 0
                     self.file_upload_thread = None
                     self.upload_stop.Disable()
                     self.upload_file_message.SetLabel("Uploading completed")
@@ -473,9 +475,7 @@ class UploadPage():
 
     def on_upload_copy_link_click(self, e):
 
-        global files_selection
-
-        share_server_link = 'https://snapshare.salhosengineering.com/image.php?file='
+        global files_selection, share_server_link
 
         copy_link_buffer = ""
 
@@ -611,6 +611,9 @@ class UploadPage():
 
 class DownloadPage():
     def __init__(self, _window):
+
+        global download_selection
+
         self.main_window = _window
         self.download_panel = wx.Panel(self.main_window, size=(self.main_window.Size[0], self.main_window.Size[1]))
         self.download_panel_vbox = wx.BoxSizer(wx.VERTICAL)
@@ -627,14 +630,18 @@ class DownloadPage():
         self.download_file_save_location.SetForegroundColour((100, 100, 100))
         self.download_file_save_location.SetBackgroundColour((250, 250, 250))
         self.download_file_save_location.SetCursor(wx.STANDARD_CURSOR)
-        self.download_file_save_location.SetValue(os.path.expanduser('~'))
+        self.download_file_save_location.SetValue(download_selection.download_directory)
         self.download_panel_vbox.Add(self.download_file_save_location, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=120)
-        self.download_panel_vbox.AddSpacer(20)
-        self.download_save_location_select = wx.Button(self.download_panel, label='Select different download destination')
+        self.download_save_location_select = wx.DirPickerCtrl(self.download_panel, path=download_selection.download_directory, message="Select a directory where the downloads will be saved", pos=wx.DefaultPosition, size=wx.DefaultSize, style=wx.DIRP_DEFAULT_STYLE, validator=wx.DefaultValidator)
         self.download_save_location_select.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.download_panel_vbox.Add(self.download_save_location_select, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=120)
-        self.download_save_location_select.Bind(wx.EVT_BUTTON, self.on_location_select_click)
-        self.download_panel_vbox.AddSpacer(10)
+        self.download_save_location_select.Bind(wx.EVT_DIRPICKER_CHANGED, self.on_location_select_click)
+        # self.download_panel_vbox.AddSpacer(20)
+        # self.download_save_location_select = wx.Button(self.download_panel, label='Select different download destination')
+        # self.download_save_location_select.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        # self.download_panel_vbox.Add(self.download_save_location_select, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=120)
+        # self.download_save_location_select.Bind(wx.EVT_BUTTON, self.on_location_select_click)
+        self.download_panel_vbox.AddSpacer(5)
         self.download_paste_links = wx.Button(self.download_panel, label='Paste share links')
         self.download_paste_links.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.download_panel_vbox.Add(self.download_paste_links, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=120)
@@ -653,6 +660,12 @@ class DownloadPage():
         self.download_available_files.InsertColumn(3, 'Share code', wx.LIST_FORMAT_LEFT, 200)
         self.download_available_files.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.download_panel_vbox.Add(self.download_available_files, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=100)
+        self.download_panel_vbox.AddSpacer(10)
+        self.download_statistics = wx.StaticText(self.download_panel, style=wx.ALIGN_LEFT)
+        self.download_statistics.SetFont(wx.Font(12, wx.FONTFAMILY_DECORATIVE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.download_statistics.SetForegroundColour((50, 50, 50))
+        self.download_statistics.SetLabel("No file downloaded yet")
+        self.download_panel_vbox.Add(self.download_statistics, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=100)
         self.download_panel_vbox.AddSpacer(60)
         self.download_empty_selection = wx.Button(self.download_panel, label='Empty downloads selection')
         self.download_empty_selection.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
@@ -664,19 +677,192 @@ class DownloadPage():
         self.download_panel_vbox.Add(self.download_the_selection, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=120)
         self.download_the_selection.Bind(wx.EVT_BUTTON, self.on_download_click)
 
+        self.download_timer = wx.Timer(self.download_panel)
+        self.download_panel.Bind(wx.EVT_TIMER, self.on_download_info_timer, self.download_timer)
+
         self.download_panel.Bind(wx.EVT_ERASE_BACKGROUND, self.on_erase_background)
 
+    def on_download_timer(self, event):
+
+        global server_error, download_selection
+
+
+        if self.file_download_number < self.downloads_required:
+
+            if self.file_download_thread == None:
+                self.file_download_thread = threading.Thread(target=self.file_download, name='file_download_thread' + str(self.file_download_number + 1), args=(self.file_download_number,))
+                self.file_download_thread.daemon = True
+                self.file_download_thread.start()
+                self.file_download_number += 1
+            else:
+                if self.file_download_thread.isAlive() == False:
+
+                    if server_error.occured == True:
+                        wx.MessageBox(server_error.last_message, 'Error', wx.OK | wx.ICON_ERROR)
+
+                    self.file_download_thread = threading.Thread(target=self.file_download, name='file_download_thread' + str(self.file_download_number + 1), args=(self.file_download_number,))
+                    self.file_download_thread.daemon = True
+                    self.file_download_thread.start()
+                    self.file_download_number += 1
+
+        else:
+            self.download_timer.Stop()
+            self.download_panel.Bind(wx.EVT_TIMER, self.on_download_info_timer, self.download_timer)
+            self.download_the_selection.SetLabel("Download")
+            self.download_the_selection.Enable()
+            self.download_paste_links.Enable()
+            self.download_save_location_select.Enable()
+
+
+    def on_download_info_timer(self, event):
+
+        global server_error
+        # urllib.request.urlopen("https://snapshare.salhosengineering.com/").getcode()
+
+        if self.link_thread.isAlive() == False:
+
+            if server_error.occured == True:
+                wx.MessageBox(server_error.last_message, 'Error', wx.OK | wx.ICON_ERROR)
+
+            self.download_paste_links.SetLabel("Paste share links")
+            self.download_paste_links.Enable()
+            self.download_timer.Stop()
+
+    def file_download(self, _file_index):
+
+        global download_selection, server_error
+
+        if download_selection.files[_file_index][4] == False:
+            return False
+
+        try:
+
+            r = requests.get('https://snapshare.salhosengineering.com/shareimage_image_download.php', params={'urlcode': str(download_selection.files[_file_index][0])}, stream=True)
+            if (r.status_code == requests.codes.ok):
+                if (r.headers.get('content-type') == 'application/octet-stream'):
+                    filename = re.findall(r'"(.*?)"', r.headers.get('content-disposition'))
+                    file_size = float(r.headers.get('content-length'))
+                    downloaded = 0.0
+                    print(download_selection.download_directory + filename[0])
+                    with open(download_selection.download_directory + filename[0], 'wb') as fd:
+                        for chunk in r.iter_content(chunk_size=4096):
+                            fd.write(chunk)
+                            downloaded += float(len(chunk))
+                            percent = int((downloaded / file_size) * 100)
+                            #self.download_statistics.SetLabel("Hello")
+            else:
+                server_error.occured = True
+                server_error.last_message = "Can not reach to Snap Image Share server"
+
+        except Exception as e:
+            server_error.occured = True
+            server_error.last_message = str(e)
+            return False
+
+        return True
+
     def on_download_click(self, e):
-        pass
+
+        global download_selection
+
+        self.file_download_number = 0
+        self.downloads_required = download_selection.files_count
+        self.file_download_thread = None
+        self.download_paste_links.Disable()
+        self.download_save_location_select.Disable()
+        self.download_the_selection.Disable()
+        self.download_the_selection.SetLabel("Downloading...")
+        self.download_panel.Bind(wx.EVT_TIMER, self.on_download_timer, self.download_timer)
+        self.download_timer.Start(1000)
 
     def on_empty_selection_click(self, e):
+        global download_selection
+
+        download_selection.files.clear()
+        download_selection.files_count = 0
+
         self.download_available_files.DeleteAllItems()
 
     def on_paste_links_click(self, e):
-        pass
+        text_data = wx.TextDataObject()
+        if wx.TheClipboard.Open():
+            success = wx.TheClipboard.GetData(text_data)
+            wx.TheClipboard.Close()
+        if success:
+            self.links = text_data.GetText().splitlines()
+            if len(self.links) > 0:
+                self.link_thread = threading.Thread(target=self.link_information, name='link_information_thread')
+                self.link_thread.daemon = True
+                self.link_thread.start()
+                self.download_paste_links.Disable()
+                self.download_paste_links.SetLabel("Retrieving link details...")
+                self.download_timer.Start(1000)
+            else:
+                wx.MessageBox("Please copy one or more sharing links to the Clipboard", 'Information', wx.OK | wx.ICON_INFORMATION)
+        else:
+            wx.MessageBox("Can't paste from the Clipboard\nPlease check the clipboard", 'Error', wx.OK | wx.ICON_ERROR)
+
+    def link_information(self):
+
+        global download_selection, server_error, max_int
+
+        files_found = 0
+
+        for i in range(len(self.links)):
+            share_code = ""
+            if (len(self.links[i]) == 55):
+                share_code = self.links[i]
+            elif (len(self.links[i]) == 110):
+                share_code = self.links[i][55:]
+            else:
+                continue
+
+            if share_code != "":
+
+                try:
+                    r = requests.post('https://snapshare.salhosengineering.com/shareimage_image_link.php', data={'urlcode': str(share_code)}, timeout=30)
+                    if (r.status_code == requests.codes.ok):
+                        server_reply = json.loads(r.text)
+                        if (server_reply['response_code'] == '1'):
+                            download_selection.files[i] = [share_code, str(server_reply['response']), 0, 0, False]
+                            download_selection.files_count += 1
+                            files_found += 1
+                        else:
+                            download_selection.files[i] = [share_code, str(server_reply['title']), int(server_reply['downloads']), round(float(server_reply['time_remaining']) / 60, 2) * (60 * 1000), True]
+                            download_selection.files_count += 1
+                            files_found += 1
+                    else:
+                        server_error.occured = True
+                        server_error.last_message = "Can not reach to Snap Image Share server"
+
+                except Exception as e:
+                    server_error.occured = True
+                    server_error.last_message = str(e)
+                    return False
+
+
+        for i in range(files_found):
+            list_row = self.download_available_files.InsertItem(max_int, download_selection.files[i][1])
+            self.download_available_files.SetItem(list_row, 1, str(download_selection.files[i][2]))
+            et_m = int(download_selection.files[i][3] / 60000)
+            et_s = math.ceil(((download_selection.files[i][3] / 60000) % 1) * 60)
+            self.download_available_files.SetItem(list_row, 2, str(int(et_m)) + ":" + str(int(et_s)))
+            self.download_available_files.SetItem(list_row, 3, download_selection.files[i][0])
+
+        return True
 
     def on_location_select_click(self, e):
-        pass
+
+        global download_selection, platform
+
+        download_selection.download_directory = self.download_save_location_select.GetPath()
+
+        if platform == "posix":
+            download_selection.download_directory += "/"
+        else:
+            download_selection.download_directory += "\\"
+
+        self.download_file_save_location.SetValue(download_selection.download_directory)
 
     def on_erase_background(self, e):
 
@@ -691,9 +877,6 @@ class DownloadPage():
 
         dc.Clear()
         dc.DrawBitmap(snap_image_share.back_image, 0, 0)
-
-    def on_location_select_click(self, e):
-        pass
 
 class AboutPage():
     def __init__(self, _window):
@@ -722,11 +905,21 @@ class AboutPage():
         self.about_panel_license_text.SetValue("File hosting online service provided by Snap Image Share is provided for use \"as is\" and is without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose and noninfringement. In no event shall Snap Image Share be liable to any party for any direct or indirect damages.")
         self.about_panel_vbox.Add(self.about_panel_license_text, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.ALL, border=60)
         self.about_panel_vbox.AddSpacer(100)
-        self.about_panel_contact_text = wx.StaticText(self.about_panel, style=wx.ALIGN_CENTER)
-        self.about_panel_contact_text.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
-        self.about_panel_contact_text.SetLabel('Please use salhosengineering@gmail.com to reach out to us.')
-        self.about_panel_contact_text.SetForegroundColour((105, 105, 105))
-        self.about_panel_vbox.Add(self.about_panel_contact_text, flag=wx.RESERVE_SPACE_EVEN_IF_HIDDEN | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL)
+        self.about_panel_contact_line = wx.BoxSizer(wx.HORIZONTAL)
+        self.about_panel_contact_textA = wx.StaticText(self.about_panel, style=wx.ALIGN_CENTER)
+        self.about_panel_contact_textA.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
+        self.about_panel_contact_textA.SetLabel('Please use ')
+        self.about_panel_contact_textA.SetForegroundColour((105, 105, 105))
+        self.about_panel_salhos_email = hl.HyperLinkCtrl(self.about_panel, -1, "salhosengineering@gmail.com", URL="mailto:salhosengineering@gmail.com")
+        self.about_panel_salhos_email.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
+        self.about_panel_contact_textB = wx.StaticText(self.about_panel, style=wx.ALIGN_CENTER)
+        self.about_panel_contact_textB.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
+        self.about_panel_contact_textB.SetLabel(' to reach out to us.')
+        self.about_panel_contact_textB.SetForegroundColour((105, 105, 105))
+        self.about_panel_contact_line.Add(self.about_panel_contact_textA)
+        self.about_panel_contact_line.Add(self.about_panel_salhos_email)
+        self.about_panel_contact_line.Add(self.about_panel_contact_textB)
+        self.about_panel_vbox.Add(self.about_panel_contact_line, flag=wx.RESERVE_SPACE_EVEN_IF_HIDDEN | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL)
 
 class FileDrop(wx.FileDropTarget):
 
@@ -830,14 +1023,30 @@ class FilesSelection():
         self.files_count = 0
         self.FILE_SIZE_LIMIT = 100 # in megabytes
 
+class DownloadSelection():
+    def __init__(self):
+        global platform
+
+        self.files = dict()
+        self.files_count = 0
+
+        if platform == "posix":
+            self.download_directory = os.path.expanduser('~') + "/"
+        else:
+            self.download_directory = os.path.expanduser('~') + "\\"
+
 class ServerError():
     def __init__(self):
         self.occured = False
         self.last_message = ""
 
 if __name__ == '__main__':
+    max_int = sys.maxsize
+    platform = os.name
+    share_server_link = 'https://snapshare.salhosengineering.com/image.php?file='
     share_goals = ShareGoals()
     files_selection = FilesSelection()
+    download_selection = DownloadSelection()
     server_error = ServerError()
     snap_image_share = SnapImageShare()
     snap_image_share.run()
