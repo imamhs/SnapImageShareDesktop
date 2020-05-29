@@ -6,7 +6,7 @@ which allows file sharing most conveniently from the comfort of your desktop she
 
 The main features of the desktop version:
 
-  Batch file uploads and downloads
-  Easy drag and drop file selection
+Batch file uploads and downloads
+Easy drag and drop file selection
 
 Copyright © 2020 Md Imam Hossain <emamhd@gmail.com>
