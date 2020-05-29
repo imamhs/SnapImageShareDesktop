@@ -1,3 +1,6 @@
+# Copyright (c) 2020, Md Imam Hossain (emamhd at gmail dot com)
+# see LICENSE.txt for details
+
 import os
 import sys
 import math
@@ -16,16 +19,21 @@ import wx.lib.agw.hyperlink as hl
 
 
 class SnapImageShare():
+
     def __init__(self):
         self.sis_app = wx.App()
         self.main_window = MainWindow()
         self.back_image = wx.Bitmap("./data/back.png", wx.BITMAP_TYPE_PNG)
+
     def run(self):
         self.sis_app.MainLoop()
 
 class MainWindow(wx.Frame):
+
     def __init__(self):
-        self.main_window_screen = None
+
+        self.saved_options = dict()
+        self.load_saved_options()
         self.main_window_title = "Snap Image Share Desktop (New possibilities)"
         self.main_window_width = 820
         self.main_window_height = 700
@@ -34,12 +42,63 @@ class MainWindow(wx.Frame):
         super(MainWindow, self).__init__(None, title=self.main_window_title, size=(self.main_window_width, self.main_window_height))
         self.SetSizeHints((self.main_window_width, self.main_window_height), maxSize=(self.main_window_width, self.main_window_height))
         self.SetIcon(self.main_window_icon)
-        if self.main_window_screen == None:
-            self.main_window_screen = SplashScreen(self)
-        else:
-            self.main_window_screen = MainScreen(self)
+        self.Bind(wx.EVT_CLOSE, self.on_window_close)
+        self.main_window_screen = SplashScreen(self)
         self.Center()
         self.Show()
+
+    def load_saved_options(self):
+
+        global download_selection, files_selection, share_goals, platform
+
+        if os.path.isfile('./data/options.json'):
+            options_conf_file = open("./data/options.json", "r")
+            self.saved_options.clear()
+            try:
+                self.saved_options = json.load(options_conf_file)
+            except ValueError:
+                print('Snap Image Share:', 'could not load options')
+            else:
+                pass
+            options_conf_file.close()
+
+        if len(self.saved_options) > 0:
+            if self.saved_options['download_dir'] != "":
+                download_selection.download_directory = self.saved_options["download_dir"]
+            else:
+                if platform == "posix":
+                    download_selection.download_directory = os.path.expanduser('~') + "/"
+                else:
+                    download_selection.download_directory = os.path.expanduser('~') + "\\"
+
+            if self.saved_options['browse_dir'] != "":
+                files_selection.browse_directory = self.saved_options["browse_dir"]
+            else:
+                if platform == "posix":
+                    files_selection.browse_directory = os.path.expanduser('~') + "/"
+                else:
+                    files_selection.browse_directory = os.path.expanduser('~') + "\\"
+
+            share_goals.downloads = self.saved_options["downloads_limit"]
+            share_goals.time = self.saved_options["time_limit"]
+
+    def save_options(self):
+        options_conf_file = open("./data/options.json", "w")
+        json.dump(self.saved_options, options_conf_file)
+        options_conf_file.close()
+
+    def on_window_close(self, e):
+
+        global files_selection, download_selection, share_goals
+
+        if e.CanVeto():
+            self.saved_options["downloads_limit"] = share_goals.downloads
+            self.saved_options["time_limit"] = share_goals.time
+            self.saved_options["browse_dir"] = files_selection.browse_directory
+            self.saved_options["download_dir"] = download_selection.download_directory
+            self.save_options()
+
+        self.Destroy()
 
 class SplashScreen():
     def __init__(self, _window):
@@ -66,7 +125,7 @@ class SplashScreen():
 
     def mouse_click_callback(self, e):
         self.splash_screen_panel.Hide()
-        self.main_window.main_window_screen = MainScreen(self.main_window)
+        MainScreen(self.main_window)
 
 class MainScreen():
     def __init__(self, _window):
@@ -316,7 +375,7 @@ class FileSelectionPage():
         global files_selection
 
         FileBrowser = wx.FileDialog(self.file_selection_panel, "Open", "", "", "All files (*.*)|*.*", wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE)
-        FileBrowser.SetDirectory(os.path.expanduser('~'))
+        FileBrowser.SetDirectory(files_selection.browse_directory)
 
         if FileBrowser.ShowModal() == wx.ID_OK:
             filenames = FileBrowser.GetFilenames()
@@ -331,6 +390,10 @@ class FileSelectionPage():
                 list_row = self.file_selection_selected_files.InsertItem(files_selection.files_count, filenames[i])
                 self.file_selection_selected_files.SetItem(list_row, 1, str(file_s))
                 self.file_selection_selected_files.SetItem(list_row, 2, pathname)
+                if platform == "posix":
+                    files_selection.browse_directory = pathname + "/"
+                else:
+                    files_selection.browse_directory = pathname + "\\"
                 files_selection.files[files_selection.files_count] = [filenames[i], file_s, pathname]
                 files_selection.files_count += 1
                 files_selection.total_size += file_s
@@ -446,7 +509,7 @@ class UploadPage():
             if self.file_upload_thread.isAlive() == False:
 
                 if server_error.occured == True:
-                    wx.MessageBox(server_error.last_message, 'Error', wx.OK | wx.ICON_ERROR)
+                    wx.MessageBox(server_error.last_message, 'Connection error', wx.OK | wx.ICON_ERROR)
 
                 if self.file_upload_number < self.file_uploads_required:
                     self.file_upload_thread = threading.Thread(target=self.upload_file, name='file_upload_thread' + str(self.file_upload_number + 1), args=(self.file_upload_number,))
@@ -658,9 +721,9 @@ class DownloadPage():
         self.download_panel_vbox.AddSpacer(30)
         self.download_available_files = wx.ListCtrl(self.download_panel, style=wx.LC_REPORT, size=(-1, 140))
         self.download_available_files.InsertColumn(0, 'File title', width=200)
-        self.download_available_files.InsertColumn(1, 'Downloaded', width=100)
-        self.download_available_files.InsertColumn(2, 'Downloads remaining', wx.LIST_FORMAT_LEFT, 150)
-        self.download_available_files.InsertColumn(3, 'Time to expiry', wx.LIST_FORMAT_LEFT, 150)
+        self.download_available_files.InsertColumn(1, 'Downloaded', width=150)
+        self.download_available_files.InsertColumn(2, 'Downloads remaining', wx.LIST_FORMAT_LEFT, 190)
+        self.download_available_files.InsertColumn(3, 'Time to expiry', wx.LIST_FORMAT_LEFT, 190)
         self.download_available_files.InsertColumn(4, 'Share code', wx.LIST_FORMAT_LEFT, 200)
         self.download_available_files.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         self.download_panel_vbox.Add(self.download_available_files, flag=wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=100)
@@ -704,7 +767,7 @@ class DownloadPage():
                 if self.file_download_thread.isAlive() == False:
 
                     if server_error.occured == True:
-                        wx.MessageBox(server_error.last_message, 'Error', wx.OK | wx.ICON_ERROR)
+                        wx.MessageBox(server_error.last_message, 'Connection error', wx.OK | wx.ICON_ERROR)
 
                     self.file_download_thread = threading.Thread(target=self.file_download, name='file_download_thread' + str(self.file_download_number + 1), args=(self.file_download_number,))
                     self.file_download_thread.daemon = True
@@ -734,7 +797,7 @@ class DownloadPage():
         if self.link_thread.isAlive() == False:
 
             if server_error.occured == True:
-                wx.MessageBox(server_error.last_message, 'Error', wx.OK | wx.ICON_ERROR)
+                wx.MessageBox(server_error.last_message, 'Connection error', wx.OK | wx.ICON_ERROR)
 
             self.download_paste_links.SetLabel("Paste share links")
             self.download_paste_links.Enable()
@@ -814,7 +877,7 @@ class DownloadPage():
             else:
                 wx.MessageBox("Please copy one or more sharing links to the Clipboard", 'Information', wx.OK | wx.ICON_INFORMATION)
         else:
-            wx.MessageBox("Can't paste from the Clipboard\nPlease check the clipboard", 'Error', wx.OK | wx.ICON_ERROR)
+            wx.MessageBox("Can't paste from the Clipboard\nPlease check the clipboard", 'Clipboard error', wx.OK | wx.ICON_ERROR)
 
     def link_information(self):
 
@@ -827,8 +890,12 @@ class DownloadPage():
             share_code = ""
             if (len(self.links[i]) == 55):
                 share_code = self.links[i]
-            elif (len(self.links[i]) == 110):
-                share_code = self.links[i][55:]
+            elif (len(self.links[i]) >= 110):
+                if self.links[i].find("https") > 0 and self.links[i].find("file=") > 0:
+                    si = self.links[i].find("file=")
+                    share_code = self.links[i][si+5:]
+                else:
+                    continue
             else:
                 continue
 
@@ -1037,19 +1104,14 @@ class FilesSelection():
         self.total_size = 0
         self.files_count = 0
         self.FILE_SIZE_LIMIT = 100 # in megabytes
+        self.browse_directory = ""
 
 class DownloadSelection():
     def __init__(self):
-        global platform
-
         self.files = dict()
         self.files_count = 0
         self.downloads_count = 0
-
-        if platform == "posix":
-            self.download_directory = os.path.expanduser('~') + "/"
-        else:
-            self.download_directory = os.path.expanduser('~') + "\\"
+        self.download_directory = ""
 
 class ServerError():
     def __init__(self):
